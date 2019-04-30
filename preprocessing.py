@@ -45,7 +45,7 @@ def load_vr_file(file):
 
 def load_mocap_file_helper(f):
     """
-    Reads a stripped down, world coordinate version of a mocap file and returns the raw data.
+    Reads a a mocap file that's been stripped of its skeleton definition and returns the raw data.
     :param f: file object
     :return: MocapData
     """
@@ -74,3 +74,37 @@ def load_mocap_file(file):
     while f.readline().strip() != "MOTION":
         pass
     return load_mocap_file_helper(f)
+
+
+def transform_vr_frame(frame):
+    """
+    Transforms a single frame of vr input. Converts angles to sin/cos values.
+    :param frame: 1D np array
+    :return: 1D np array
+    """
+
+    new_frame = np.zeros(27)  # TODO: Don't hardcode this
+    for i in range(3):
+        f_index, nf_index = 6*i, 9*i
+        new_frame[nf_index:nf_index+3] = frame[f_index:f_index+3]
+        for j in range(3):
+            new_frame[nf_index+3+2*j] = np.sin(frame[f_index+3+j])
+            new_frame[nf_index+3+2*j+1] = np.cos(frame[f_index+3+j])
+    return new_frame
+
+
+def transform_mocap_frame(frame):
+    """
+    Transforms a single frame of mocap input. Converts angles to sin/cos values.
+    :param frame: 1D np array
+    :return: 1D np array
+    """
+
+    # First 3 floats are xyz. Remainder are angles.
+    new_frame = np.zeros(3 + (frame.size-3) * 2)
+    new_frame[:3] = frame[:3]
+    for i in range(frame.size - 3):
+        f_index, nf_index = i + 3, 2*i + 3
+        new_frame[nf_index] = np.sin(frame[f_index])
+        new_frame[nf_index+1] = np.cos(frame[f_index])
+    return new_frame
