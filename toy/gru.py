@@ -11,7 +11,7 @@ import pickle as pkl
 import os
 
 
-class ToyModel:
+class GRUToyModel:
     """TF graph builder for the CudnnLSTM model."""
 
     def __init__(self, input_size=2,
@@ -31,7 +31,7 @@ class ToyModel:
         self.seed = seed
         self.model = model
 
-        self.model_name = "toy-cudnnlstm-{}-{}-{}-{}-{}".format(
+        self.model_name = "toy-gru-{}-{}-{}-{}-{}".format(
             self.num_layers, self.num_units, self.direction,
             self.learning_rate, self.dropout)
         self.save_path = "./checkpoints/{}.ckpt".format(self.model_name)
@@ -52,45 +52,41 @@ class ToyModel:
                                      shape=[None, None, self.input_size],
                                      name="input_placeholder")
 
-        if model == 0:  # CudnnLSTM
-            self.lstm = tf.contrib.cudnn_rnn.CudnnLSTM(
+        if model == 0:  # CudnnGRU
+            self.gru = tf.contrib.cudnn_rnn.CudnnGRU(
                 self.num_layers,
                 self.num_units,
                 direction=self.direction,
                 dropout=self.dropout if is_training else 0.,
-                # kernel_initializer=tf.contrib.layers.xavier_initializer()
             )
             # outputs: [time_len, batch_size, num_units]
             # output_states: ([time_len, batch_size, num_units], [time_len, batch_size, num_units])
-            self.outputs, self.output_states = self.lstm(
+            self.outputs, self.output_states = self.gru(
                 self.inputs,
                 initial_state=None,
                 training=True
             )
-        else:  # LSTMBlockCell or LSTMCell
-            with tf.variable_scope("cudnn_lstm"):
+        else:  # GRUBlockCell or GRUCell
+            with tf.variable_scope("cudnn_gru"):
                 if not self.is_training:
                     # [num_layers, 2, batch_size, num_units]
                     self.initial_state = tf.placeholder(tf.float32,
-                                                        shape=[self.num_layers, 2, None, self.num_units],
+                                                        shape=[self.num_layers, 1, None, self.num_units],
                                                         name="state_placeholder")
                     self.initial_cell_state = tuple([
-                        tf.nn.rnn_cell.LSTMStateTuple(
-                            self.initial_state[idx, 0],
-                            self.initial_state[idx, 1]
-                        ) for idx in range(self.num_layers)
+                        self.initial_state[idx, 0] for idx in range(self.num_layers)
                     ])
 
                 # Create cells
                 if model == 1:
-                    single_cell = lambda: tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(
+                    single_cell = lambda: tf.contrib.cudnn_rnn.CudnnCompatibleGRUCell(
                         self.num_units, reuse=tf.get_variable_scope().reuse)
                 else:
-                    single_cell = lambda: tf.nn.rnn_cell.LSTMCell(
+                    single_cell = lambda: tf.nn.rnn_cell.GRUCell(
                         self.num_units, reuse=tf.get_variable_scope().reuse)
                 self.cell = tf.nn.rnn_cell.MultiRNNCell([single_cell() for _ in range(self.num_layers)])
 
-                # Run LSTM
+                # Run GRU
                 self.outputs, self.output_states = tf.nn.dynamic_rnn(
                     self.cell,
                     self.inputs,
@@ -192,6 +188,9 @@ class ToyModel:
                 allow_soft_placement=True,
                 log_device_placement=False,
         )) as sess:
+            for var in tf.trainable_variables():
+                print(var)
+
             sess.run(tf.global_variables_initializer())
             if self.model == 1:
                 #self.restore_weights(sess)
@@ -202,7 +201,7 @@ class ToyModel:
                 self.restore_weights(sess)
                 print("--------Model restored from {}========".format(self.pickle_path))
 
-            state = np.zeros((self.num_layers, 2, inputs_test_.shape[1], self.num_units))
+            state = np.zeros((self.num_layers, 1, inputs_test_.shape[1], self.num_units))
             test_loss_ = sess.run(
                 self.loss,
                 feed_dict={self.inputs: inputs_test_,
@@ -220,8 +219,8 @@ class ToyModel:
         self.saver = tf.train.Saver()
 
         # Define input/output names
-        input_node_names = ["input_placeholder", "cudnn_lstm/state_placeholder"]
-        output_node_names = ["predictions", "cudnn_lstm/output_state"]
+        input_node_names = ["input_placeholder", "cudnn_gru/state_placeholder"]
+        output_node_names = ["predictions", "cudnn_gru/output_state"]
         output_node_names_str = ",".join(output_node_names)
 
         # Hard-coded path values

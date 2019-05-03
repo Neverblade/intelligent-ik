@@ -9,12 +9,13 @@ from tensorflow.python.tools import optimize_for_inference_lib
 import numpy as np
 import pickle as pkl
 import os
+import preprocessing
 
 
-class ToyModel:
+class CudnnLSTMModel:
     """TF graph builder for the CudnnLSTM model."""
 
-    def __init__(self, input_size=2,
+    def __init__(self, input_size=2, output_size=39,
                  num_layers=2, num_units=64, direction="unidirectional",
                  learning_rate=0.001, dropout=0.2, seed=0, is_training=True, model=0):
         """Initialize parameters and the TF computation graph."""
@@ -23,6 +24,7 @@ class ToyModel:
         model parameters
         """
         self.input_size = input_size
+        self.output_size = output_size
         self.num_layers = num_layers
         self.num_units = num_units
         self.direction = direction
@@ -31,7 +33,7 @@ class ToyModel:
         self.seed = seed
         self.model = model
 
-        self.model_name = "toy-cudnnlstm-{}-{}-{}-{}-{}".format(
+        self.model_name = "cudnnlstm-{}-{}-{}-{}-{}".format(
             self.num_layers, self.num_units, self.direction,
             self.learning_rate, self.dropout)
         self.save_path = "./checkpoints/{}.ckpt".format(self.model_name)
@@ -42,8 +44,6 @@ class ToyModel:
         self.saver = None
         self.sess = None
 
-        tf.set_random_seed(self.seed)
-
         """
         TF graph construction
         """
@@ -51,6 +51,8 @@ class ToyModel:
         self.inputs = tf.placeholder(tf.float32,
                                      shape=[None, None, self.input_size],
                                      name="input_placeholder")
+        # [time_len, batch_size, output_size]
+        self.labels = tf.placeholder(tf.float32, shape=[None, None, self.output_size], name="label_placeholder")
 
         if model == 0:  # CudnnLSTM
             self.lstm = tf.contrib.cudnn_rnn.CudnnLSTM(
@@ -60,6 +62,7 @@ class ToyModel:
                 dropout=self.dropout if is_training else 0.,
                 # kernel_initializer=tf.contrib.layers.xavier_initializer()
             )
+
             # outputs: [time_len, batch_size, num_units]
             # output_states: ([time_len, batch_size, num_units], [time_len, batch_size, num_units])
             self.outputs, self.output_states = self.lstm(
@@ -104,17 +107,26 @@ class ToyModel:
                     ]) for state_tuple in self.output_states
                 ], name="output_state")
 
-        # [time_len, batch_size, 4]
-        self.logits = tf.layers.dense(self.outputs, 4, name="logits")
-        # [time_len, batch_size, 2]
-        self.predictions = tf.stack([tf.atan2(self.logits[:, :, 2*idx], self.logits[:, :, 2*idx+1]) for idx in range(2)], axis=2, name="predictions")
+        #expanded_output_size = (self.output_size - 3) * 2 + 3
+        # [time_len, batch_size, expanded_output_size]
+        self.logits = tf.layers.dense(self.outputs, self.output_size, name="logits")
 
-        # [time_len, batch_size, 2]
-        self.labels = tf.placeholder(tf.float32, shape=[None, None, 2], name="label_placeholder")
-        # [time_len, batch_size, 2]
-        self.difference = self.predictions - self.labels
+        # [time_len, batch_size, output_size-3]
+        # angles = tf.stack([tf.atan2(self.logits[:, :, 2*idx+3],
+        #                             self.logits[:, :, 2*idx+4])
+        #                   for idx in range(0, self.output_size-3)], axis=2)
+        # [time_len, batch_size, output_size]
+        #self.predictions = tf.concat([self.logits[:, :, :3], angles], axis=2, name="predictions")
+        # [time_len, batch_size, output_size]
+        # self.difference = self.predictions - self.labels
         # float
-        self.loss = tf.reduce_mean(tf.abs(tf.atan2(tf.sin(self.difference), tf.cos(self.difference))), name="loss")
+        # self.loss = tf.reduce_mean(tf.abs(tf.atan2(tf.sin(self.difference), tf.cos(self.difference))), name="loss")
+
+        self.loss = tf.losses.mean_squared_error(self.labels, self.logits,
+                                                 reduction=tf.losses.Reduction.SUM)
+
+        #diff = self.labels - self.logits
+        #self.loss = tf.reduce_sum(tf.multiply(diff, diff))
 
         if self.is_training:
             self.optimizer = \
@@ -137,7 +149,7 @@ class ToyModel:
 
             # Restore
             if self.model == 0:
-                if os.path.isfile(self.save_path):
+                if os.path.isfile(self.save_path + ".index"):
                     self.saver.restore(sess, self.save_path)
                     print("========Model restored from {}========".format(
                         self.save_path))
@@ -150,27 +162,31 @@ class ToyModel:
             print("========Training CudnnLSTM with "
                   "{} layers and {} units=======".format(self.num_layers,
                                                          self.num_units))
-            n_train = len(labels_)
+            n_train = labels_.shape[1]
+            indices = np.arange(n_train)
             for epoch in range(num_epochs):
                 print("Epoch {}:".format(epoch))
-                for batch in tqdm(range(n_train // batch_size)):
+                np.random.shuffle(indices)
+                total_train_loss = 0
+                num_batches = n_train // batch_size + (1 if batch_size % n_train > 0 else 0)
+                for batch in tqdm(range(num_batches)):
                     current = batch * batch_size
-                    _ = sess.run(
-                        [self.train_op],
+                    _, loss = sess.run(
+                        [self.train_op, self.loss],
                         feed_dict={
                             self.inputs:
-                                inputs_[:, current:current+batch_size, :],
+                                inputs_[:, indices[current:current+batch_size], :],
                             self.labels:
-                                labels_[:, current:current+batch_size, :]
+                                labels_[:, indices[current:current+batch_size], :]
                         }
                     )
+                    total_train_loss += loss
+
                 # monitor per epoch
-                train_loss_ = sess.run(
-                    self.loss, feed_dict={self.inputs: inputs_,
-                                          self.labels: labels_})
+                train_loss_ = total_train_loss / labels_.size
                 valid_loss_ = sess.run(
                     self.loss, feed_dict={self.inputs: inputs_valid_,
-                                          self.labels: labels_valid_})
+                                          self.labels: labels_valid_}) / labels_valid_.size
                 print("\ttrain loss: {:.5f}".format(train_loss_))
                 print("\tvalid loss: {:.5f}".format(valid_loss_))
                 if (epoch+1) % 10 == 0:
@@ -203,15 +219,47 @@ class ToyModel:
                 print("--------Model restored from {}========".format(self.pickle_path))
 
             state = np.zeros((self.num_layers, 2, inputs_test_.shape[1], self.num_units))
-            test_loss_ = sess.run(
+            total_loss = sess.run(
                 self.loss,
                 feed_dict={self.inputs: inputs_test_,
                            self.labels: labels_test_,
                            self.initial_state: state}
             )
+            test_loss_ = total_loss / labels_test_.size
             print("\teval loss: {:.5f}".format(test_loss_))
 
         return test_loss_
+
+    def predict(self, inputs, labels):
+        assert not self.is_training, \
+            "predict(): model initialized in training mode"
+
+        self.saver = tf.train.Saver()
+        with tf.Session(config=tf.ConfigProto(
+                allow_soft_placement=True,
+                log_device_placement=False,
+        )) as sess:
+            sess.run(tf.global_variables_initializer())
+            if self.model == 1:
+                # self.restore_weights(sess)
+                self.saver.restore(sess, self.save_path)
+                print("========Model restored from {}========".format(
+                    self.save_path))
+            elif self.model == 2:
+                self.restore_weights(sess)
+                print("--------Model restored from {}========".format(self.pickle_path))
+
+            state = np.zeros((self.num_layers, 2, inputs.shape[1], self.num_units))
+            total_loss, logits = sess.run(
+                [self.loss, self.logits],
+                feed_dict={self.inputs: inputs,
+                           self.labels: labels,
+                           self.initial_state: state}
+            )
+
+            print("\tpredict loss: {:.5f}".format(total_loss / labels.size))
+            predicts = preprocessing.convert_to_predicts(logits)
+            preprocessing.save_predicts(predicts, "predicts.bvh")
 
     def export(self):
         assert not self.is_training, \

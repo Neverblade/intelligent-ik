@@ -7,7 +7,8 @@ NOTES:
 
 import tensorflow as tf
 import numpy as np
-from toy.cudnnlstm import CudnnLSTMModel
+from cudnnlstm import ToyModel
+from gru import GRUToyModel
 
 dir_path = "./checkpoints"
 data_files = ["data1.txt", "data2.txt", "data3.txt"]    # -d --data_files
@@ -42,9 +43,9 @@ tf.app.flags.DEFINE_float("dropout", 0.2,
 tf.app.flags.DEFINE_integer("seed", 0,
                             """Random seed for both numpy and tensorflow.""")
 
-tf.app.flags.DEFINE_integer("model", 1,
+tf.app.flags.DEFINE_integer("model", 2,
                             """CudnnLSTM (0), LSTMBlockCell (1), or LSTMCell (2).""")
-tf.app.flags.DEFINE_integer("action", 2,
+tf.app.flags.DEFINE_integer("action", 1,
                             """Whether to train (0), eval (1), or export (2).""")
 
 #################
@@ -197,11 +198,11 @@ def main(_):
         inputs_, inputs_valid_ = x[:, valid_size:, :], x[:, :valid_size, :]
         labels_, labels_valid_ = y[:, valid_size:, :], y[:, :valid_size, :]
 
-    model = CudnnLSTMModel(FLAGS.input_size,
-                           FLAGS.num_layers, FLAGS.num_units, FLAGS.direction,
-                           FLAGS.learning_rate, FLAGS.dropout, FLAGS.seed,
-                           is_training=FLAGS.action == 0,
-                           model=FLAGS.model)
+    model = GRUToyModel(FLAGS.input_size,
+                     FLAGS.num_layers, FLAGS.num_units, FLAGS.direction,
+                     FLAGS.learning_rate, FLAGS.dropout, FLAGS.seed,
+                     is_training=FLAGS.action == 0,
+                     model=FLAGS.model)
 
     if FLAGS.action == 0:  # TRAINING
         assert FLAGS.model == 0 or FLAGS.model == 2, \
@@ -215,25 +216,10 @@ def main(_):
     elif FLAGS.action == 2:  # EXPORTING
         assert FLAGS.model == 1 or FLAGS.model == 2, \
             "main(): evaluated model must be LSTMBlockCell or LSTMCell"
-
         if FLAGS.model == 1:
             model.export_weights()
         elif FLAGS.model == 2:
             model.export()
-
-        """
-        compat_model = CudnnLSTMModel(FLAGS.input_size,
-                                      FLAGS.num_layers, FLAGS.num_units, FLAGS.direction,
-                                      FLAGS.learning_rate, FLAGS.dropout, FLAGS.seed,
-                                      is_training=False, model=1)
-        weights = compat_model.export_weights()
-        tf.reset_default_graph()
-        model = CudnnLSTMModel(FLAGS.input_size,
-                               FLAGS.num_layers, FLAGS.num_units, FLAGS.direction,
-                               FLAGS.learning_rate, FLAGS.dropout, FLAGS.seed,
-                               is_training=False, model=2)
-        model.export(weights, inputs_, labels_)
-        """
 
 
 if __name__ == "__main__":

@@ -75,6 +75,7 @@ def process_args():
             global mocap_file
             mocap_file = arg
 
+
 def main():
     # Command line arguments
     process_args()
@@ -115,6 +116,7 @@ def main():
 
     variability = np.array(offsets) - predicted_offset
     print("Variability:", variability)
+    print("Average variability: ", np.mean(variability))
     #"""
 
     plt.plot(np.arange(mocap_vec.size) / mocap_fps + predicted_offset, mocap_vec, 'b')
