@@ -15,7 +15,7 @@ tf.app.flags.DEFINE_integer("time_len", 32,
                             """Number of timesteps per sequence.""")
 tf.app.flags.DEFINE_integer("input_size", 27,
                             """Dimension of inputs.""")
-tf.app.flags.DEFINE_integer("output_size", 81,
+tf.app.flags.DEFINE_integer("output_size", 129,
                             """Dimension of outputs.""")
 
 tf.app.flags.DEFINE_integer("num_layers", 2,
@@ -38,9 +38,9 @@ tf.app.flags.DEFINE_float("dropout", 0.2,
 tf.app.flags.DEFINE_integer("seed", 0,
                             """Random seed for both numpy and tensorflow.""")
 
-tf.app.flags.DEFINE_integer("model", 1,
+tf.app.flags.DEFINE_integer("model", 2,
                             """CudnnLSTM (0), LSTMBlockCell (1), or LSTMCell (2).""")
-tf.app.flags.DEFINE_integer("action", 3,
+tf.app.flags.DEFINE_integer("action", 1,
                             """Whether to train (0), eval (1), export (2), or predict (3).""")
 
 
@@ -88,7 +88,8 @@ def main(_):
             "main(): predicting model must be LSTMBlockCell or LSTMCell"
         mocap_data, vr_data = preprocessing.load_data("data-4.txt")
         inputs = preprocessing.shape_data(vr_data.frames, vr_data.frames.shape[0])
-        labels = preprocessing.shape_data(mocap_data.frames, mocap_data.frames.shape[0])[:, :, :81]
+        # labels = preprocessing.shape_data(mocap_data.frames, mocap_data.frames.shape[0])[:, :, :81]
+        labels = preprocessing.shape_data(mocap_data.frames, mocap_data.frames.shape[0])
         model.predict(inputs, labels)
 
         # inputs, labels, inputs_valid, labels_valid = preprocessing.get_data(FLAGS.time_len)

@@ -386,11 +386,15 @@ def get_data(time_len):
     # Load and reshape data
     xs, ys = [], []
     for file_name in os.listdir("data/preprocessed"):
+        if file_name == "data-4.txt":
+            print("Skipping data-4")
+            continue
         mocap_data, vr_data = load_data(file_name)
         xs.append(shape_data(vr_data.frames, time_len))
         ys.append(shape_data(mocap_data.frames, time_len))
     x = np.concatenate(xs, axis=1)
-    y = np.concatenate(ys, axis=1)[:, :, :81]
+    # y = np.concatenate(ys, axis=1)[:, :, :81]
+    y = np.concatenate(ys, axis=1)
 
     # Shuffle
     indices = np.arange(x.shape[1])
@@ -439,8 +443,6 @@ def save_predicts(predicts, file_name):
 
 def main():
     for i in tqdm(range(0, len(data))):
-        if i == 4:
-            continue
         vr_name, mocap_name, offset = data[i]
         vr_data = load_vr_file("data/vr/" + vr_name)
         mocap_data = load_mocap_file("data/mocap/" + mocap_name)
