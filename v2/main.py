@@ -1,12 +1,7 @@
-"""
-Random input gets errors of ~0.25-0.35.
-"""
-
 import tensorflow as tf
-from v1.cudnnlstm import CudnnLSTMModel
-from v1 import preprocessing
+from lstm import LSTMModel
+import data_processing
 import numpy as np
-from preprocessing import MocapData, VRData
 
 # allow global hyperparameters using `tf.app.flags`
 FLAGS = tf.app.flags.FLAGS
@@ -38,44 +33,46 @@ tf.app.flags.DEFINE_float("dropout", 0.2,
 tf.app.flags.DEFINE_integer("seed", 0,
                             """Random seed for both numpy and tensorflow.""")
 
-tf.app.flags.DEFINE_integer("model", 2,
+tf.app.flags.DEFINE_integer("model", 0,
                             """CudnnLSTM (0), LSTMBlockCell (1), or LSTMCell (2).""")
-tf.app.flags.DEFINE_integer("action", 3,
+tf.app.flags.DEFINE_integer("action", 0,
                             """Whether to train (0), eval (1), export (2), or predict (3).""")
 
 
 def main(_):
-
     if FLAGS.seed != -1:
         np.random.seed(FLAGS.seed)
         tf.set_random_seed(FLAGS.seed)
 
-    # Random data
-    # sequences = 1000
-    # x = np.random.uniform(-1, 1, (FLAGS.time_len, sequences, FLAGS.input_size))
-    # y = np.random.uniform(-1, 1, (FLAGS.time_len, sequences, FLAGS.output_size))
-    # valid_size = x.shape[1] // 10
-    # inputs, labels, inputs_valid, labels_valid \
-    #     = x[:, valid_size:], y[:, valid_size:], x[:, :valid_size], y[:, :valid_size]
-
     print("Creating model...")
-    model = CudnnLSTMModel(FLAGS.input_size, FLAGS.output_size,
+    model = LSTMModel(FLAGS.input_size, FLAGS.output_size,
                            FLAGS.num_layers, FLAGS.num_units, FLAGS.direction,
                            FLAGS.learning_rate, FLAGS.dropout, FLAGS.seed,
                            is_training=FLAGS.action == 0,
                            model=FLAGS.model)
 
     if FLAGS.action == 0:  # TRAINING
-        #assert FLAGS.model == 0 or FLAGS.model == 2, \
-        #    "main(): trained model must be CudnnLSTM, or LSTMCell"
-        inputs, labels, inputs_valid, labels_valid = preprocessing.get_data(FLAGS.time_len)
-        model.train(inputs, inputs_valid, labels, labels_valid,
-                    FLAGS.batch_size, FLAGS.num_epochs)
+        assert FLAGS.model != 1
+        data_storage = data_processing.prepare_all_data(FLAGS.time_len)
+        model.train(data_storage, FLAGS.batch_size, FLAGS.num_epochs)
+        # inputs, labels, inputs_valid, labels_valid = data_processing.prepare_data(FLAGS.time_len)
+        # model.train(inputs, inputs_valid, labels, labels_valid,
+        #             FLAGS.batch_size, FLAGS.num_epochs)
     elif FLAGS.action == 1:  # EVALUATING
         assert FLAGS.model == 1 or FLAGS.model == 2, \
             "main(): evaluated model must be LSTMBlockCell or LSTMCell"
-        inputs, labels, inputs_valid, labels_valid = preprocessing.get_data(FLAGS.time_len)
-        model.eval(inputs_valid, labels_valid)
+
+        set_idx, aug_idx = 7, 0
+        inputs, labels = data_processing.prepare_indexed_data(FLAGS.time_len, set_idx, aug_idx)
+        model.predict(inputs, labels)
+
+        # pkl_index = 7
+        # world_data, mocap_data = data_processing.load_data(
+        #     open("processed_data/data-" + str(pkl_index) + ".pkl", "rb"))
+        # inputs = data_processing.sequence_split_data(world_data, world_data.shape[0])
+        # labels = data_processing.sequence_split_data(mocap_data, mocap_data.shape[0])
+        # #inputs, labels = data_processing.augment_data(inputs, labels)
+        # model.predict(inputs, labels)
     elif FLAGS.action == 2:  # EXPORTING
         assert FLAGS.model == 1 or FLAGS.model == 2, \
             "main(): evaluated model must be LSTMBlockCell or LSTMCell"
@@ -86,23 +83,20 @@ def main(_):
     elif FLAGS.action == 3:  # PREDICTING
         assert FLAGS.model == 1 or FLAGS.model == 2, \
             "main(): predicting model must be LSTMBlockCell or LSTMCell"
-        mocap_data, vr_data = preprocessing.load_data("data-4.txt")
-        inputs = preprocessing.shape_data(vr_data.frames, vr_data.frames.shape[0])
-        # labels = preprocessing.shape_data(mocap_data.frames, mocap_data.frames.shape[0])[:, :, :81]
-        labels = preprocessing.shape_data(mocap_data.frames, mocap_data.frames.shape[0])
-        model.predict(inputs, labels)
 
-        # inputs, labels, inputs_valid, labels_valid = preprocessing.get_data(FLAGS.time_len)
-        # print(inputs_valid.shape, labels_valid.shape)
-        # np.swapaxes(inputs_valid, 0, 1)
-        # inputs_valid = inputs_valid.reshape((inputs_valid.shape[0] * inputs_valid.shape[1], inputs_valid.shape[2]))
-        # np.swapaxes(labels_valid, 0, 1)
-        # labels_valid = labels_valid.reshape((labels_valid.shape[0] * labels_valid.shape[1], labels_valid.shape[2]))
-        # print(inputs_valid.shape, labels_valid.shape)
-        # inputs = preprocessing.shape_data(inputs_valid, inputs_valid.shape[0])
-        # labels = preprocessing.shape_data(labels_valid, labels_valid.shape[0])
-        # print(inputs.shape, labels.shape)
-        # model.predict(inputs, labels)
+        set_idx, aug_idx = 7, 0
+        inputs, labels = data_processing.prepare_indexed_data(FLAGS.time_len, set_idx, aug_idx)
+        predicts = model.predict(inputs, labels)
+        data_processing.save_predicts_to_file(predicts, set_idx)
+
+        # pkl_index = 7
+        # world_data, mocap_data = data_processing.load_data(
+        #     open("processed_data/data-" + str(pkl_index) + ".pkl", "rb"))
+        # inputs = data_processing.sequence_split_data(world_data, world_data.shape[0])
+        # labels = data_processing.sequence_split_data(mocap_data, mocap_data.shape[0])
+        # loss, logits = model.predict(inputs, labels)
+        # predicts = data_processing.convert_logits_to_predicts(logits)
+        # data_processing.save_predicts_to_file(predicts, pkl_index)
 
 
 if __name__ == "__main__":

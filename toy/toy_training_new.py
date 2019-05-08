@@ -7,7 +7,6 @@ NOTES:
 
 import tensorflow as tf
 import numpy as np
-from cudnnlstm import ToyModel
 from gru import GRUToyModel
 
 dir_path = "./checkpoints"

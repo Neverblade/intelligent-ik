@@ -2,17 +2,18 @@
 Original author: YJ Choe (yjchoe33@gmail.com).
 """
 
+import os
+import pickle as pkl
+
+import data_processing
+import numpy as np
 import tensorflow as tf
-from tqdm import tqdm
 from tensorflow.python.tools import freeze_graph
 from tensorflow.python.tools import optimize_for_inference_lib
-import numpy as np
-import pickle as pkl
-import os
-from v1 import preprocessing
+from tqdm import tqdm
 
 
-class CudnnLSTMModel:
+class LSTMModel:
     """TF graph builder for the CudnnLSTM model."""
 
     def __init__(self, input_size=2, output_size=39,
@@ -107,28 +108,10 @@ class CudnnLSTMModel:
                     ]) for state_tuple in self.output_states
                 ], name="output_state")
 
-        #expanded_output_size = (self.output_size - 3) * 2 + 3
-        # [time_len, batch_size, expanded_output_size]
         self.logits = tf.layers.dense(self.outputs, self.output_size, name="logits")
-
-        # [time_len, batch_size, output_size-3]
-        # angles = tf.stack([tf.atan2(self.logits[:, :, 2*idx+3],
-        #                             self.logits[:, :, 2*idx+4])
-        #                   for idx in range(0, self.output_size-3)], axis=2)
-        # [time_len, batch_size, output_size]
-        #self.predictions = tf.concat([self.logits[:, :, :3], angles], axis=2, name="predictions")
-        # [time_len, batch_size, output_size]
-        # self.difference = self.predictions - self.labels
-        # float
-        # self.loss = tf.reduce_mean(tf.abs(tf.atan2(tf.sin(self.difference), tf.cos(self.difference))), name="loss")
-
+        self.predicts = tf.identity(self.logits, name="predictions")
         self.loss = tf.losses.mean_squared_error(self.labels, self.logits,
                                                  reduction=tf.losses.Reduction.SUM)
-        self.predicts = tf.identity(self.logits, name="predictions")
-
-        #diff = self.labels - self.logits
-        #self.loss = tf.reduce_sum(tf.multiply(diff, diff))
-
         if self.is_training:
             self.optimizer = \
                 tf.train.AdamOptimizer(learning_rate=self.learning_rate)
@@ -136,8 +119,72 @@ class CudnnLSTMModel:
 
         return
 
-    def train(self, inputs_, inputs_valid_, labels_, labels_valid_,
-              batch_size, num_epochs):
+    # def train(self, inputs_, inputs_valid_, labels_, labels_valid_,
+    #           batch_size, num_epochs):
+    #     assert self.is_training, \
+    #         "train(): model not initialized in training mode"
+    #
+    #     self.saver = tf.train.Saver()
+    #     with tf.Session(config=tf.ConfigProto(
+    #             allow_soft_placement=True,
+    #             log_device_placement=False,
+    #     )) as sess:
+    #         sess.run(tf.global_variables_initializer())
+    #
+    #         # Restore
+    #         if self.model == 0 or self.model == 1:
+    #             if os.path.isfile(self.save_path + ".index"):
+    #                 self.saver.restore(sess, self.save_path)
+    #                 print("========Model restored from {}========".format(
+    #                     self.save_path))
+    #         elif self.model == 2:
+    #             if os.path.isfile(self.pickle_path):
+    #                 self.restore_weights(sess)
+    #                 print("--------Model restored from {}========".format(self.pickle_path))
+    #
+    #
+    #         print("========Training CudnnLSTM with "
+    #               "{} layers and {} units=======".format(self.num_layers,
+    #                                                      self.num_units))
+    #         n_train = labels_.shape[1]
+    #         indices = np.arange(n_train)
+    #         for epoch in range(num_epochs):
+    #             print("Epoch {}:".format(epoch))
+    #             np.random.shuffle(indices)
+    #             # inputs_, labels_ = data_processing.augment_data(inputs_, labels_)
+    #             total_train_loss = 0
+    #             num_batches = n_train // batch_size + (1 if batch_size % n_train > 0 else 0)
+    #             for batch in tqdm(range(num_batches)):
+    #                 current = batch * batch_size
+    #                 _, loss = sess.run(
+    #                     [self.train_op, self.loss],
+    #                     feed_dict={
+    #                         self.inputs:
+    #                             inputs_[:, indices[current:current+batch_size], :],
+    #                         self.labels:
+    #                             labels_[:, indices[current:current+batch_size], :]
+    #                     }
+    #                 )
+    #                 total_train_loss += loss
+    #
+    #             # monitor per epoch
+    #             train_loss_ = total_train_loss / labels_.size
+    #             valid_loss_ = sess.run(
+    #                 self.loss, feed_dict={self.inputs: inputs_valid_,
+    #                                       self.labels: labels_valid_}) / labels_valid_.size
+    #             print("\ttrain loss: {:.5f}".format(train_loss_))
+    #             print("\tvalid loss: {:.5f}".format(valid_loss_))
+    #             if (epoch+1) % 10 == 0:
+    #                 if self.model == 0:
+    #                     self.saver.save(sess, self.save_path)
+    #                 elif self.model == 2:
+    #                     self.save_weights(sess)
+    #
+    #         print("========Finished training! "
+    #               "(Model saved in {})========".format(self.save_path))
+    #     return
+
+    def train(self, data_storage, batch_size, num_epochs):
         assert self.is_training, \
             "train(): model not initialized in training mode"
 
@@ -149,7 +196,7 @@ class CudnnLSTMModel:
             sess.run(tf.global_variables_initializer())
 
             # Restore
-            if self.model == 0:
+            if self.model == 0 or self.model == 1:
                 if os.path.isfile(self.save_path + ".index"):
                     self.saver.restore(sess, self.save_path)
                     print("========Model restored from {}========".format(
@@ -159,37 +206,67 @@ class CudnnLSTMModel:
                     self.restore_weights(sess)
                     print("--------Model restored from {}========".format(self.pickle_path))
 
+            # Initialize vars
+            # np.random.shuffle(data_storage.indices)
+            n_valid = 1000
+            n_train = data_storage.indices.shape[0] - n_valid
+            ex_input, ex_label = data_storage.get_slice((0, 0, 0))
+            input_batch = np.zeros((ex_input.shape[0], batch_size, ex_input.shape[1]))
+            label_batch = np.zeros((ex_label.shape[0], batch_size, ex_label.shape[1]))
+            n_t_label_elements = ex_label.shape[0] * n_train * ex_label.shape[1]
+
+            # Construct indices and validation set
+            t_indices, v_indices = data_storage.indices[n_valid:], data_storage.indices[:n_valid]
+            v_inputs = np.zeros((ex_input.shape[0], n_valid, ex_input.shape[1]))
+            v_labels = np.zeros((ex_label.shape[0], n_valid, ex_label.shape[1]))
+            for i in range(n_valid):
+                v_inputs[:, i, :], v_labels[:, i, :] = data_storage.get_slice(v_indices[i])
+            n_v_label_elements = ex_label.shape[0] * n_valid * ex_label.shape[1]
+            v_labels, v_inputs = data_processing.insert_root_motion(v_labels, v_inputs)
+
+            print(v_indices[0], data_storage.file_mapping[0])
+            print(v_labels[0, 0, :])
 
             print("========Training CudnnLSTM with "
                   "{} layers and {} units=======".format(self.num_layers,
                                                          self.num_units))
-            n_train = labels_.shape[1]
-            indices = np.arange(n_train)
             for epoch in range(num_epochs):
                 print("Epoch {}:".format(epoch))
-                np.random.shuffle(indices)
+
+                # Training
+                np.random.shuffle(t_indices)
                 total_train_loss = 0
                 num_batches = n_train // batch_size + (1 if batch_size % n_train > 0 else 0)
                 for batch in tqdm(range(num_batches)):
                     current = batch * batch_size
+
+                    # Get batch and transfer root motion
+                    for i in range(batch_size):
+                        input_batch[:, i, :], label_batch[:, i, :] =\
+                            data_storage.get_slice(t_indices[current + i])
+                    labels, inputs =\
+                        data_processing.insert_root_motion(label_batch, input_batch)
+                    inputs, labels = data_processing.augment_xz(inputs, labels)
                     _, loss = sess.run(
                         [self.train_op, self.loss],
                         feed_dict={
                             self.inputs:
-                                inputs_[:, indices[current:current+batch_size], :],
+                                inputs[:, current:current+batch_size, :],
                             self.labels:
-                                labels_[:, indices[current:current+batch_size], :]
+                                labels[:, current:current+batch_size, :]
                         }
                     )
+                    print(loss)
                     total_train_loss += loss
-
-                # monitor per epoch
-                train_loss_ = total_train_loss / labels_.size
-                valid_loss_ = sess.run(
-                    self.loss, feed_dict={self.inputs: inputs_valid_,
-                                          self.labels: labels_valid_}) / labels_valid_.size
+                train_loss_ = total_train_loss / n_t_label_elements
                 print("\ttrain loss: {:.5f}".format(train_loss_))
+
+                # Validation
+                valid_loss_ = sess.run(
+                    self.loss, feed_dict={self.inputs: v_inputs,
+                                          self.labels: v_labels}) / n_v_label_elements
                 print("\tvalid loss: {:.5f}".format(valid_loss_))
+
                 if (epoch+1) % 10 == 0:
                     if self.model == 0:
                         self.saver.save(sess, self.save_path)
@@ -199,37 +276,6 @@ class CudnnLSTMModel:
             print("========Finished training! "
                   "(Model saved in {})========".format(self.save_path))
         return
-
-    def eval(self, inputs_test_, labels_test_):
-        assert not self.is_training, \
-            "eval(): model initialized in training mode"
-
-        self.saver = tf.train.Saver()
-        with tf.Session(config=tf.ConfigProto(
-                allow_soft_placement=True,
-                log_device_placement=False,
-        )) as sess:
-            sess.run(tf.global_variables_initializer())
-            if self.model == 1:
-                #self.restore_weights(sess)
-                self.saver.restore(sess, self.save_path)
-                print("========Model restored from {}========".format(
-                    self.save_path))
-            elif self.model == 2:
-                self.restore_weights(sess)
-                print("--------Model restored from {}========".format(self.pickle_path))
-
-            state = np.zeros((self.num_layers, 2, inputs_test_.shape[1], self.num_units))
-            total_loss = sess.run(
-                self.loss,
-                feed_dict={self.inputs: inputs_test_,
-                           self.labels: labels_test_,
-                           self.initial_state: state}
-            )
-            test_loss_ = total_loss / labels_test_.size
-            print("\teval loss: {:.5f}".format(test_loss_))
-
-        return test_loss_
 
     def predict(self, inputs, labels):
         assert not self.is_training, \
@@ -259,8 +305,7 @@ class CudnnLSTMModel:
             )
 
             print("\tpredict loss: {:.5f}".format(total_loss / labels.size))
-            predicts = preprocessing.convert_to_predicts(logits)
-            preprocessing.save_predicts(predicts, "predicts.bvh")
+            return total_loss // labels.size, logits
 
     def export(self):
         assert not self.is_training, \
@@ -275,7 +320,7 @@ class CudnnLSTMModel:
 
         # Hard-coded path values
         dir = "exports"
-        graph_name = "toy"
+        graph_name = "v2"
         pbtxt = dir + "/" + graph_name + "_graph.pbtxt"
         chkp = dir + "/" + graph_name + ".chkp"
 
@@ -284,7 +329,6 @@ class CudnnLSTMModel:
                 log_device_placement=False,
         )) as sess:
             self.restore_weights(sess)
-
             tf.train.write_graph(sess.graph_def, dir, graph_name + "_graph.pbtxt")
             self.saver.save(sess, chkp)
             freeze_graph.freeze_graph(pbtxt,  # input_graph

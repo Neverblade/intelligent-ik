@@ -1,6 +1,7 @@
 .idea/
 __pycache__/
 data/*
-checkpoints
+**/checkpoints
 **/exports/**
+v2/processed_data/**
 

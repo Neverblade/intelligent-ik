@@ -70,6 +70,7 @@ data = [
     )
 ]
 
+
 class VRData:
 
     def __init__(self, num_frames, fps, calibration_frame, frames):
@@ -189,7 +190,7 @@ def save_data(mocap_data, vr_data, name):
     assert mocap_data.num_frames == vr_data.num_frames \
         and mocap_data.fps == vr_data.fps
 
-    file_path = "data/preprocessed/" + name + ".txt"
+    file_path = "../data/preprocessed/" + name + ".txt"
     save_obj = {"mocap": mocap_data, "vr": vr_data}
     pkl.dump(save_obj, open(file_path, "wb"))
 
@@ -201,7 +202,7 @@ def load_data(name):
     :return: (mocap_data, vr_data)
     """
 
-    file_path = "data/preprocessed/" + name
+    file_path = "../data/preprocessed/" + name
     save_obj = pkl.load(open(file_path, "rb"))
     return save_obj["mocap"], save_obj["vr"]
 
@@ -385,7 +386,7 @@ def get_data(time_len):
 
     # Load and reshape data
     xs, ys = [], []
-    for file_name in os.listdir("data/preprocessed"):
+    for file_name in os.listdir("../data/preprocessed"):
         if file_name == "data-4.txt":
             print("Skipping data-4")
             continue
@@ -444,8 +445,8 @@ def save_predicts(predicts, file_name):
 def main():
     for i in tqdm(range(0, len(data))):
         vr_name, mocap_name, offset = data[i]
-        vr_data = load_vr_file("data/vr/" + vr_name)
-        mocap_data = load_mocap_file("data/mocap/" + mocap_name)
+        vr_data = load_vr_file("../data/vr/" + vr_name)
+        mocap_data = load_mocap_file("../data/mocap/" + mocap_name)
         preprocess_data(mocap_data, vr_data, offset, vr_data.fps)
         save_data(mocap_data, vr_data, "data-" + str(i))
 
