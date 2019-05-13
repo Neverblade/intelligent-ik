@@ -23,7 +23,7 @@ tf.app.flags.DEFINE_string("direction", "unidirectional",
 
 tf.app.flags.DEFINE_integer("num_epochs", 1000,
                             """Number of epochs for training.""")
-tf.app.flags.DEFINE_integer("batch_size", 256,
+tf.app.flags.DEFINE_integer("batch_size", 512,
                             """Batch size per iteration during training.""")
 tf.app.flags.DEFINE_float("learning_rate", 0.001,
                           """Learning rate for training using Adam.""")
@@ -62,8 +62,8 @@ def main(_):
         assert FLAGS.model == 1 or FLAGS.model == 2, \
             "main(): evaluated model must be LSTMBlockCell or LSTMCell"
 
-        set_idx, aug_idx = 7, 0
-        inputs, labels = data_processing.prepare_indexed_data(FLAGS.time_len, set_idx, aug_idx)
+        set_idx, aug_idx = 7, 4
+        inputs, labels = data_processing.prepare_indexed_data(None, set_idx, aug_idx)
         model.predict(inputs, labels)
 
         # pkl_index = 7
@@ -85,8 +85,9 @@ def main(_):
             "main(): predicting model must be LSTMBlockCell or LSTMCell"
 
         set_idx, aug_idx = 7, 0
-        inputs, labels = data_processing.prepare_indexed_data(FLAGS.time_len, set_idx, aug_idx)
-        predicts = model.predict(inputs, labels)
+        inputs, labels = data_processing.prepare_indexed_data(None, set_idx, aug_idx)
+        loss, logits = model.predict(inputs, labels)
+        predicts = data_processing.convert_logits_to_predicts(logits)
         data_processing.save_predicts_to_file(predicts, set_idx)
 
         # pkl_index = 7

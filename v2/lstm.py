@@ -119,71 +119,6 @@ class LSTMModel:
 
         return
 
-    # def train(self, inputs_, inputs_valid_, labels_, labels_valid_,
-    #           batch_size, num_epochs):
-    #     assert self.is_training, \
-    #         "train(): model not initialized in training mode"
-    #
-    #     self.saver = tf.train.Saver()
-    #     with tf.Session(config=tf.ConfigProto(
-    #             allow_soft_placement=True,
-    #             log_device_placement=False,
-    #     )) as sess:
-    #         sess.run(tf.global_variables_initializer())
-    #
-    #         # Restore
-    #         if self.model == 0 or self.model == 1:
-    #             if os.path.isfile(self.save_path + ".index"):
-    #                 self.saver.restore(sess, self.save_path)
-    #                 print("========Model restored from {}========".format(
-    #                     self.save_path))
-    #         elif self.model == 2:
-    #             if os.path.isfile(self.pickle_path):
-    #                 self.restore_weights(sess)
-    #                 print("--------Model restored from {}========".format(self.pickle_path))
-    #
-    #
-    #         print("========Training CudnnLSTM with "
-    #               "{} layers and {} units=======".format(self.num_layers,
-    #                                                      self.num_units))
-    #         n_train = labels_.shape[1]
-    #         indices = np.arange(n_train)
-    #         for epoch in range(num_epochs):
-    #             print("Epoch {}:".format(epoch))
-    #             np.random.shuffle(indices)
-    #             # inputs_, labels_ = data_processing.augment_data(inputs_, labels_)
-    #             total_train_loss = 0
-    #             num_batches = n_train // batch_size + (1 if batch_size % n_train > 0 else 0)
-    #             for batch in tqdm(range(num_batches)):
-    #                 current = batch * batch_size
-    #                 _, loss = sess.run(
-    #                     [self.train_op, self.loss],
-    #                     feed_dict={
-    #                         self.inputs:
-    #                             inputs_[:, indices[current:current+batch_size], :],
-    #                         self.labels:
-    #                             labels_[:, indices[current:current+batch_size], :]
-    #                     }
-    #                 )
-    #                 total_train_loss += loss
-    #
-    #             # monitor per epoch
-    #             train_loss_ = total_train_loss / labels_.size
-    #             valid_loss_ = sess.run(
-    #                 self.loss, feed_dict={self.inputs: inputs_valid_,
-    #                                       self.labels: labels_valid_}) / labels_valid_.size
-    #             print("\ttrain loss: {:.5f}".format(train_loss_))
-    #             print("\tvalid loss: {:.5f}".format(valid_loss_))
-    #             if (epoch+1) % 10 == 0:
-    #                 if self.model == 0:
-    #                     self.saver.save(sess, self.save_path)
-    #                 elif self.model == 2:
-    #                     self.save_weights(sess)
-    #
-    #         print("========Finished training! "
-    #               "(Model saved in {})========".format(self.save_path))
-    #     return
-
     def train(self, data_storage, batch_size, num_epochs):
         assert self.is_training, \
             "train(): model not initialized in training mode"
@@ -207,9 +142,11 @@ class LSTMModel:
                     print("--------Model restored from {}========".format(self.pickle_path))
 
             # Initialize vars
-            # np.random.shuffle(data_storage.indices)
+            np.random.shuffle(data_storage.indices)
             n_valid = 1000
             n_train = data_storage.indices.shape[0] - n_valid
+            num_batches = n_train // batch_size
+            n_train = num_batches * batch_size
             ex_input, ex_label = data_storage.get_slice((0, 0, 0))
             input_batch = np.zeros((ex_input.shape[0], batch_size, ex_input.shape[1]))
             label_batch = np.zeros((ex_label.shape[0], batch_size, ex_label.shape[1]))
@@ -224,9 +161,6 @@ class LSTMModel:
             n_v_label_elements = ex_label.shape[0] * n_valid * ex_label.shape[1]
             v_labels, v_inputs = data_processing.insert_root_motion(v_labels, v_inputs)
 
-            print(v_indices[0], data_storage.file_mapping[0])
-            print(v_labels[0, 0, :])
-
             print("========Training CudnnLSTM with "
                   "{} layers and {} units=======".format(self.num_layers,
                                                          self.num_units))
@@ -236,7 +170,6 @@ class LSTMModel:
                 # Training
                 np.random.shuffle(t_indices)
                 total_train_loss = 0
-                num_batches = n_train // batch_size + (1 if batch_size % n_train > 0 else 0)
                 for batch in tqdm(range(num_batches)):
                     current = batch * batch_size
 
@@ -250,16 +183,13 @@ class LSTMModel:
                     _, loss = sess.run(
                         [self.train_op, self.loss],
                         feed_dict={
-                            self.inputs:
-                                inputs[:, current:current+batch_size, :],
-                            self.labels:
-                                labels[:, current:current+batch_size, :]
+                            self.inputs: inputs,
+                            self.labels: labels
                         }
                     )
-                    print(loss)
                     total_train_loss += loss
-                train_loss_ = total_train_loss / n_t_label_elements
-                print("\ttrain loss: {:.5f}".format(train_loss_))
+                train_loss = total_train_loss / n_t_label_elements
+                print("\ttrain loss: {:.5f}".format(train_loss))
 
                 # Validation
                 valid_loss_ = sess.run(
@@ -267,7 +197,7 @@ class LSTMModel:
                                           self.labels: v_labels}) / n_v_label_elements
                 print("\tvalid loss: {:.5f}".format(valid_loss_))
 
-                if (epoch+1) % 10 == 0:
+                if (epoch+1) % 1 == 0:
                     if self.model == 0:
                         self.saver.save(sess, self.save_path)
                     elif self.model == 2:

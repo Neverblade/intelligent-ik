@@ -3,6 +3,7 @@ import os
 import pickle as pkl
 from tqdm import tqdm
 from itertools import chain
+from transforms3d import quaternions as qt, euler
 
 BLACK_LIST = [0, 1, 2, 7]
 DATA_DIR = "../data/mocap"
@@ -10,8 +11,8 @@ SAVE_DIR = "processed_data"
 EXPORT_DIR = "exports"
 CURRENT_FPS = 120
 DESIRED_FPS = 50
-NUM_AUGMENTS = 1
-NUM_SETS = 8
+NUM_AUGMENTS = 7
+NUM_SETS = 18
 
 
 class DataStorage:
@@ -253,36 +254,10 @@ def process_world_data(world_data, current_fps, desired_fps):
     """
 
     world_data = resample_world_data(world_data, current_fps, desired_fps)
+    world_data[:, 18:] = convert_right_to_left(world_data[:, 18:])
     world_data = angles_to_trig_world_data(world_data)
 
     return world_data
-
-
-# def save_data(world_data, mocap_data, id):
-#     """
-#     Saves a pair of world and mocap data into a single pickle file.
-#     :param world_data:
-#     :param mocap_data:
-#     :param idx:
-#     :return:
-#     """
-#
-#     assert world_data.shape[0] == mocap_data.shape[0]
-#
-#     file_path = SAVE_DIR + "/data-" + id + ".pkl"
-#     save_obj = {"world": world_data, "mocap": mocap_data}
-#     pkl.dump(save_obj, open(file_path, "wb"))
-
-
-def load_data(file):
-    """
-    Loads the world and mocap data associated with a pickle file.
-    :param file: file object
-    :return: world_data, mocap_data
-    """
-
-    save_obj = pkl.load(file)
-    return save_obj["world"], save_obj["mocap"]
 
 
 def save_data(obj, id):
@@ -313,6 +288,7 @@ def process_all_data_and_save():
                 world_data = load_world_file(
                     open(DATA_DIR + "/" + dir_name + "/" + "world-" + str(i) + ".txt", "r"))
                 world_data = process_world_data(world_data, CURRENT_FPS, DESIRED_FPS)
+
                 save_data(world_data, str(counter) + "-" + str(i))
 
                 # # Move hips data over (result of augmentation)
@@ -416,6 +392,9 @@ def prepare_indexed_data(time_len, set_idx, aug_idx):
     mocap_data = pkl.load(open(SAVE_DIR + "/" + "data-" + str(set_idx) + "-mocap.pkl", "rb"))
     world_data = pkl.load(
         open(SAVE_DIR + "/" + "data-" + str(set_idx) + "-" + str(aug_idx) + ".pkl", "rb"))
+
+    if time_len is None:
+        time_len = mocap_data.shape[0]
     mocap_data = sequence_split_data(mocap_data, time_len)
     world_data = sequence_split_data(world_data, time_len)
     mocap_data, world_data = insert_root_motion(mocap_data, world_data)
@@ -500,29 +479,51 @@ def augment_xz(inputs, labels):
 
 if __name__ == "__main__":
     # process_all_data_and_save()
-    prepare_all_data(32)
+    # import sys
+    # sys.exit(0)
 
-    # file = open(SAVE_DIR + "/data-0.pkl", "rb")
-    # world_data, mocap_data = load_data(file)
-    # print(world_data.shape, mocap_data.shape)
-    # print(world_data[:5])
-    # print(mocap_data[:5])
+    # m = open(DATA_DIR + "/Take 2019-04-16 04.19.31 PM.bvh", "r")
+    # w = open(DATA_DIR + "/Take 2019-04-16 04.19.31 PM/world-1.txt", "r")
+    m = open(DATA_DIR + "/Take 2019-04-18 05.32.45 PM.bvh", "r")
+    w = open(DATA_DIR + "/Take 2019-04-18 05.32.45 PM/world-0.txt", "r")
+    # m = open(DATA_DIR + "/Take 2019-04-18 05.29.41 PM.bvh", "r")
+    # w = open(DATA_DIR + "/Take 2019-04-18 05.29.41 PM/world-0.txt", "r")
 
-    # time_len = 5
-    # num_sequences = 4
-    # input_size, output_size = 3, 2
+    mocap_data = load_mocap_file(m)
+    world_data = load_world_file(w)
+    # mocap_data = convert_right_to_left(mocap_data)
+
+    mocap_data[:, :3] = world_data[:, 18:21] * 100
+
+    # for i in range(mocap_data.shape[0]):
+    #     data = np.deg2rad(world_data[i, 21:24])
+    #     q = euler.euler2quat(data[1], data[0], data[2], "syxz")
+    #     e = np.rad2deg(euler.quat2euler(q, "szxy"))
+    #     mocap_data[i, 3:6] = e
+
+    mocap_data[:, 3] = world_data[:, 23]
+    mocap_data[:, 4] = world_data[:, 21]
+    mocap_data[:, 5] = world_data[:, 22]
+
+    mocap_data = convert_right_to_left(mocap_data)
+
+    # from transforms3d import quaternions as qt, euler
+    # r_quat = qt.axangle2quat((0, 1, 0), np.deg2rad(-angle))
     #
-    # perturbs = np.random.uniform(-3, 3, (num_sequences, 2))
-    # inputs = np.zeros((time_len, num_sequences, input_size))
-    # labels = np.zeros((time_len, num_sequences, output_size))
-    #
-    # # [time_len, num_sequences, num_obj] += [num_sequences, 1]
-    # inputs[:, :, ::9] += perturbs[:, 0:1]
-    # inputs[:, :, 1::9] += perturbs[:, 1:2]
-    #
-    # # [time_len, num_sequences, 1] += [num_sequences, 1]
-    # labels[:, :, 0:1] += perturbs[:, 0:1]
-    # labels[:, :, 1:2] += perturbs[:, 1:2]
-    #
-    # print(inputs)
-    # print(labels)
+    # for i in range(mocap_data.shape[0]):
+    #     org_t = mocap_data[i, :3]
+    #     org_r = np.deg2rad(mocap_data[i, 3:])
+    #     org_r_z = qt.axangle2quat((0, 0, 1), org_r[0])
+    #     org_r_x = qt.axangle2quat((1, 0, 0), org_r[1])
+    #     org_r_y = qt.axangle2quat((0, 1, 0), org_r[2])
+    #     new_quat = qt.qmult(r_quat, qt.qmult(org_r_y, qt.qmult(org_r_x, org_r_z)))
+    #     mocap_data[i, :3] = qt.rotate_vector(org_t, r_quat)
+    #     mocap_data[i, 3:6] = np.rad2deg(euler.quat2euler(new_quat, "szxy"))
+
+    f = open(DATA_DIR + "/test-file-2.bvh", "w")
+    for i in range(mocap_data.shape[0]):
+        s = " ".join([str(j) for j in mocap_data[i]])
+        f.write(s + "\n")
+    m.close()
+    f.close()
+
