@@ -281,6 +281,7 @@ def process_all_data_and_save():
             augment_values_file = open(DATA_DIR + "/" + dir_name + "/augment-values.txt")
             num_augments = int(augment_values_file.readline().split()[1])
 
+            # Read each augment
             mocap_data = load_mocap_file(open(DATA_DIR + "/" + file_name, "r"))
             mocap_data = process_mocap_data(mocap_data, CURRENT_FPS, DESIRED_FPS)
             save_data(mocap_data, str(counter) + "-mocap")
@@ -288,17 +289,26 @@ def process_all_data_and_save():
                 world_data = load_world_file(
                     open(DATA_DIR + "/" + dir_name + "/" + "world-" + str(i) + ".txt", "r"))
                 world_data = process_world_data(world_data, CURRENT_FPS, DESIRED_FPS)
-
                 save_data(world_data, str(counter) + "-" + str(i))
 
-                # # Move hips data over (result of augmentation)
-                # mocap_data[:, :3] = world_data[:, 18:21]
-                # mocap_data[:, 4] = world_data[:, 23]
-                # mocap_data[:, 5] = world_data[:, 21]
-                # mocap_data[:, 6] = world_data[:, 22]
-                # world_data = world_data[:, :18]
-
             counter += 1
+
+
+def process_data_and_save(file_name, counter):
+    # Read the augment values meta file
+    dir_name = file_name.replace(".bvh", "")
+    augment_values_file = open(DATA_DIR + "/" + dir_name + "/augment-values.txt")
+    num_augments = int(augment_values_file.readline().split()[1])
+
+    mocap_data = load_mocap_file(open(DATA_DIR + "/" + file_name, "r"))
+    mocap_data = process_mocap_data(mocap_data, CURRENT_FPS, DESIRED_FPS)
+    save_data(mocap_data, str(counter) + "-mocap")
+    for i in range(num_augments):
+        world_data = load_world_file(
+            open(DATA_DIR + "/" + dir_name + "/" + "world-" + str(i) + ".txt", "r"))
+        world_data = process_world_data(world_data, CURRENT_FPS, DESIRED_FPS)
+
+        save_data(world_data, str(counter) + "-" + str(i))
 
 
 def is_valid_world_data(file_name):
@@ -478,9 +488,9 @@ def augment_xz(inputs, labels):
 
 
 if __name__ == "__main__":
-    # process_all_data_and_save()
-    # import sys
-    # sys.exit(0)
+    process_data_and_save("Take 2019-05-09 03.59.47 PM.bvh", 100)
+    import sys
+    sys.exit(0)
 
     # m = open(DATA_DIR + "/Take 2019-04-16 04.19.31 PM.bvh", "r")
     # w = open(DATA_DIR + "/Take 2019-04-16 04.19.31 PM/world-1.txt", "r")

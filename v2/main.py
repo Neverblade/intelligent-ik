@@ -33,9 +33,9 @@ tf.app.flags.DEFINE_float("dropout", 0.2,
 tf.app.flags.DEFINE_integer("seed", 0,
                             """Random seed for both numpy and tensorflow.""")
 
-tf.app.flags.DEFINE_integer("model", 0,
+tf.app.flags.DEFINE_integer("model", 2,
                             """CudnnLSTM (0), LSTMBlockCell (1), or LSTMCell (2).""")
-tf.app.flags.DEFINE_integer("action", 0,
+tf.app.flags.DEFINE_integer("action", 3,
                             """Whether to train (0), eval (1), export (2), or predict (3).""")
 
 
@@ -84,20 +84,23 @@ def main(_):
         assert FLAGS.model == 1 or FLAGS.model == 2, \
             "main(): predicting model must be LSTMBlockCell or LSTMCell"
 
-        set_idx, aug_idx = 7, 0
+        set_idx, aug_idx = 0, 0
         inputs, labels = data_processing.prepare_indexed_data(None, set_idx, aug_idx)
         loss, logits = model.predict(inputs, labels)
         predicts = data_processing.convert_logits_to_predicts(logits)
-        data_processing.save_predicts_to_file(predicts, set_idx)
+        org_labels = data_processing.convert_logits_to_predicts(labels)
 
-        # pkl_index = 7
-        # world_data, mocap_data = data_processing.load_data(
-        #     open("processed_data/data-" + str(pkl_index) + ".pkl", "rb"))
-        # inputs = data_processing.sequence_split_data(world_data, world_data.shape[0])
-        # labels = data_processing.sequence_split_data(mocap_data, mocap_data.shape[0])
-        # loss, logits = model.predict(inputs, labels)
-        # predicts = data_processing.convert_logits_to_predicts(logits)
-        # data_processing.save_predicts_to_file(predicts, pkl_index)
+        print(predicts[:, :3], org_labels[:, :3])
+
+        mae = np.mean(np.abs(predicts - org_labels), axis=0)
+        line = ""
+        for i in range(22):
+            line += "{0:.5f}".format(np.mean(mae[3*i:3*i+3])) + " "
+        print(line)
+        print(np.mean(mae[3:]))
+
+
+        # data_processing.save_predicts_to_file(predicts, set_idx)
 
 
 if __name__ == "__main__":
